@@ -1,62 +1,38 @@
 from pathlib import Path
 
-import gymnasium as gym
-import pygame
+import gymnasium as gym  # popravljeno
+import numpy as np
 from sb3_contrib import TQC
-
+# from stable_baselines3 import PPO
+import os
 import circ_env
 
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-MODEL_DIRS = [
-    SCRIPT_DIR / "models" / "TQC_hockey",
-    SCRIPT_DIR / "models" / "TQC01",
-    SCRIPT_DIR.parent / "models" / "TQC_hockey",
-    SCRIPT_DIR.parent / "models" / "TQC01",
-]
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "TQC02" / "280000"
 
+env = gym.make('circ_env/AirHockey-v0', render_mode="human")
 
-def latest_model_path():
-    candidates = []
-    for models_dir in MODEL_DIRS:
-        if not models_dir.exists():
-            continue
-        candidates.extend(path for path in models_dir.glob("*.zip") if path.stem.isdigit())
-        best = models_dir / "best.zip"
-        if best.exists():
-            candidates.append(best)
+print(f"Loading model: {MODEL_PATH}")
+model = TQC.load(str(MODEL_PATH), env=env)
 
-    if not candidates:
-        searched = "\n".join(str(path) for path in MODEL_DIRS)
-        raise FileNotFoundError(f"Ni TQC hokej modela. Pregledane mape:\n{searched}")
+# Reset the environment
+vec_env = model.get_env()
+obs = vec_env.reset()
 
-    numeric = [path for path in candidates if path.stem.isdigit()]
-    if numeric:
-        return max(numeric, key=lambda path: int(path.stem))
-    return candidates[0]
+EPISODES = 1000
 
+for episode in range(EPISODES):
 
-def main():
-    env = gym.make("circ_env/AirHockey-v0", render_mode="human")
-    model_path = latest_model_path()
-    print(f"Loading model: {model_path}")
-    model = TQC.load(str(model_path), env=env)
+    obs = vec_env.reset()
+    done = False
 
-    obs, _ = env.reset()
-
-    while True:
-        if any(event.type == pygame.QUIT for event in pygame.event.get()):
-            break
+    while not done:
 
         action, _state = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, _ = env.step(action.squeeze())
+        obs, reward, done, _, _ = env.step(action.squeeze())  # popravljeno
+
         env.render()
 
-        if terminated or truncated:
-            obs, _ = env.reset()
-
-    env.close()
-
-
-if __name__ == "__main__":
-    main()
+# Close the environment
+env.close()
+vec_env.close()

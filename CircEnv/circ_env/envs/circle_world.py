@@ -49,7 +49,9 @@ class CircleEnvironment(gym.Env):
         self.max_agent_vel = 2.0
         self.max_puck_vel = 5.0
         
-        self.time_steps = 500
+        self.time_steps = 700
+        self.prev_agent_puck_distance = 0.0
+        self.prev_puck_goal_distance = 0.0
 
         self.observation_space = spaces.Box(low=np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32),
                                             high=np.array([self.width, self.height, self.width, self.height], dtype=np.float32), dtype=np.float32)
@@ -86,8 +88,17 @@ class CircleEnvironment(gym.Env):
 
         ############ TUKAJ SPREMINJATE
 
-        self.reset_agent((np.random.uniform(self.agent_radius*1.5, self.width - self.agent_radius*1.5), np.random.uniform(self.agent_radius*1.5, self.height - self.agent_radius*1.5)))
-        self.reset_puck((np.random.uniform(self.object_radius+self.agent_radius*3, self.width - self.object_radius-self.agent_radius*3), np.random.uniform(self.object_radius+self.agent_radius*3, self.height - self.object_radius-self.agent_radius*3)))
+        puck_x = np.random.uniform(self.object_radius+self.agent_radius*3, self.width - self.object_radius-self.agent_radius*3)
+        puck_y = np.random.uniform(self.height*0.25, self.height*0.65)
+        agent_x = np.clip(puck_x + np.random.uniform(-0.45, 0.45), self.agent_radius*1.5, self.width - self.agent_radius*1.5)
+        agent_y = np.clip(puck_y + np.random.uniform(0.7, 1.4), self.agent_radius*1.5, self.height - self.agent_radius*1.5)
+
+        self.reset_agent((agent_x, agent_y))
+        self.reset_puck((puck_x, puck_y))
+
+        goal_pos = np.array([self.goal.position.x, self.goal.position.y], dtype=np.float32)
+        self.prev_agent_puck_distance = self.calc_distance(self.get_agent_position(), self.get_puck_position())
+        self.prev_puck_goal_distance = self.calc_distance(self.get_puck_position(), goal_pos)
      
         ############ DO TUKAJ SPREMINJATE
 
@@ -98,36 +109,58 @@ class CircleEnvironment(gym.Env):
 
         ############ TUKAJ SPREMINJATE
         #action = self.move_agent_mouse()
+        action = np.clip(np.asarray(action, dtype=np.float32), self.action_space.low, self.action_space.high)
         self.set_agent_velocity(action) 
 
         self.limit_puck_velocity(self.max_puck_vel)
         obs = self._get_obs() 
 
-        reward = -1.0/self.time_steps
+        goal_pos = np.array([self.goal.position.x, self.goal.position.y], dtype=np.float32)
+        agent_pos = self.get_agent_position()
+        puck_pos = self.get_puck_position()
+        puck_vel = self.get_puck_velocity()
+        agent_puck_distance = self.calc_distance(agent_pos, puck_pos)
+        puck_goal_distance = self.calc_distance(puck_pos, goal_pos)
+        agent_progress = self.prev_agent_puck_distance - agent_puck_distance
+        puck_progress = self.prev_puck_goal_distance - puck_goal_distance
+
+        reward = -0.5/self.time_steps
+        reward += 0.25*np.clip(agent_progress, -0.05, 0.05)
+        reward += 1.25*np.clip(puck_progress, -0.08, 0.08)
+        reward += 0.01*(1.0 - np.clip(agent_puck_distance/self.height, 0.0, 1.0))
+
+        puck_goal_component = self.calculate_component(puck_pos, goal_pos, puck_vel)
+        reward += 0.03*np.clip(puck_goal_component, -self.max_puck_vel, self.max_puck_vel)
+        reward += -0.0001*np.linalg.norm(action)
+
+        self.prev_agent_puck_distance = agent_puck_distance
+        self.prev_puck_goal_distance = puck_goal_distance
         done = False          
 
         if self.current_step >= self.time_steps:
+            reward += -0.5
             done = True
 
         if self._is_collision(self.object, self.goal):
-            reward += 1.0
+            reward += 10.0
             done = True
 
         if self._is_collision(self.agent, self.object):
-            goal_pos = np.array([self.goal.position.x, self.goal.position.y], dtype=np.float32)
             coll_normal = self.get_puck_position() - self.get_agent_position()
             coll_normal_norm = np.linalg.norm(coll_normal)
             if coll_normal_norm > 0:
                 coll_normal = coll_normal/coll_normal_norm
                 F_comp = self.calculate_component(self.get_puck_position(), goal_pos, coll_normal)
-                reward += 0.05*F_comp
+                reward += 0.4
+                reward += 1.0*max(0.0, F_comp)
+                reward += -0.5*max(0.0, -F_comp)
 
         if self._is_collision(self.agent, self.border):
-            reward += -1.0
+            reward += -2.0
             done = True
 
         if self._is_collision(self.object, self.border):
-            reward += -0.007
+            reward += -0.03
 
         ############ DO TUKAJ SPREMINJATE
         self.current_step += 1
