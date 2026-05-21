@@ -69,7 +69,8 @@ class HockeyEnv(gym.Env):
         self.player_max_vel = 5.0
         self.puck_max_vel = 10.0*np.sqrt(2)
 
-        self.time_steps = 500
+        self.time_steps = 800
+        self.prev_agent_puck_distance = 0.0
         self.prev_puck_goal_distance = 0.0
 
         # Set the observation and action spaces
@@ -129,6 +130,25 @@ class HockeyEnv(gym.Env):
         self.reset_opponent()
 
         self.reset_puck()
+
+        puck_pos = self.get_puck_position()
+        agent_x = np.clip(
+            puck_pos[0] + np.random.uniform(-0.45, 0.45),
+            self.dim.rink_left/self.PPM + self.agent_radius,
+            self.dim.rink_right/self.PPM - self.agent_radius,
+        )
+        agent_y = np.clip(
+            puck_pos[1] + np.random.uniform(0.7, 1.4),
+            self.dim.center[1]/self.PPM + self.agent_radius,
+            self.dim.rink_bottom/self.PPM - self.agent_radius,
+        )
+        self.agent.position = b2Vec2(float(agent_x), float(agent_y))
+        self.agent.linearVelocity = (0, 0)
+        self.agent.angularVelocity = 0.0
+
+        top_goal_pos = np.array([self.goal_t.position.x, self.goal_t.position.y], dtype=np.float32)
+        self.prev_agent_puck_distance = self.calc_distance(self.get_agent_position(), self.get_puck_position())
+        self.prev_puck_goal_distance = self.calc_distance(self.get_puck_position(), top_goal_pos)
         
        # Return the initial observation
         return self._get_obs(), {}
@@ -161,32 +181,49 @@ class HockeyEnv(gym.Env):
         bottom_goal_pos = np.array([self.goal_b.position.x, self.goal_b.position.y], dtype=np.float32)
         dist_to_top_goal = self.calc_distance(puck_pos, top_goal_pos)
         dist_to_puck = self.calc_distance(agent_pos, puck_pos)
+        agent_puck_progress = self.prev_agent_puck_distance - dist_to_puck
         puck_goal_progress = self.prev_puck_goal_distance - dist_to_top_goal
+        self.prev_agent_puck_distance = dist_to_puck
         self.prev_puck_goal_distance = dist_to_top_goal
 
-        reward = -1.0/self.time_steps
-        reward += 0.02*puck_goal_progress
-        reward += -0.001*dist_to_puck
+        reward = -0.5/self.time_steps
+        reward += 0.30*np.clip(agent_puck_progress, -0.08, 0.08)
+        reward += 2.50*np.clip(puck_goal_progress, -0.12, 0.12)
+
+        action_norm = np.linalg.norm(action)
+        if dist_to_puck > self.agent_radius + self.object_radius + 0.1 and action_norm > 0:
+            to_puck = (puck_pos - agent_pos)/dist_to_puck
+            action_to_puck = np.dot(action, to_puck)
+            reward += 0.004*np.clip(action_to_puck, -self.player_max_vel, self.player_max_vel)
+
+        behind_puck = agent_pos[1] > puck_pos[1]
+        x_alignment = max(0.0, 1.0 - abs(agent_pos[0] - puck_pos[0])/0.8)
+        if dist_to_puck < 1.2 and behind_puck:
+            reward += 0.003*x_alignment
+
+        reward += -0.0001*action_norm
 
         puck_speed = np.linalg.norm(puck_vel)
         if puck_speed > 0:
-            goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel/puck_speed)
-            own_goal_component = self.calculate_component(puck_pos, bottom_goal_pos, puck_vel/puck_speed)
-            reward += 0.01*goal_component
-            reward += -0.01*own_goal_component
+            goal_component = self.calculate_component(puck_pos, top_goal_pos, puck_vel)
+            own_goal_component = self.calculate_component(puck_pos, bottom_goal_pos, puck_vel)
+            reward += 0.08*np.clip(goal_component, -self.puck_max_vel, self.puck_max_vel)
+            reward += -0.08*np.clip(own_goal_component, -self.puck_max_vel, self.puck_max_vel)
+        elif action_norm < 0.2:
+            reward += -0.006
 
         done = False        
 
         # Check if player (bottom mallet) scored a goal
         if self._is_collision(self.object, self.goal_t):
             self.score_agent += 1
-            reward += 1.0
+            reward += 20.0
             done = True
 
         # Check if opponent (top mallet) scored a goal
         if self._is_collision(self.object, self.goal_b):
             self.score_opponent += 1
-            reward += -1.0
+            reward += -20.0
             done = True            
 
         if self._is_collision(self.agent, self.object):
@@ -195,19 +232,22 @@ class HockeyEnv(gym.Env):
             if coll_normal_norm > 0:
                 coll_normal = coll_normal/coll_normal_norm
                 F_comp = self.calculate_component(self.get_puck_position(), top_goal_pos, coll_normal)
-                reward += 0.05*F_comp
+                reward += 0.2
+                reward += 2.0*max(0.0, F_comp)
+                reward += -1.0*max(0.0, -F_comp)
         
         # Check if episode is too long
         if self.current_step >= self.time_steps:
+            reward += -0.5
             done = True
 
         # Check if player hit the border
         if self._is_collision(self.agent, self.border) or self._is_collision(self.agent, self.hockey_border) or self._is_collision(self.agent, self.center_line_border_body):
-            reward += -0.1
+            reward += -2.0
             done = True            
 
         if self._is_collision(self.object, self.hockey_border):
-            reward += -0.002
+            reward += -0.03
 
         ############ DO TUKAJ SPREMINJATE
         self.current_step += 1

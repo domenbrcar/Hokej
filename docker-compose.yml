@@ -1,0 +1,24 @@
+services:
+  hockey-train:
+    build: .
+    working_dir: /app/CircEnv
+    command: python train_hockey.py
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SDL_VIDEODRIVER: dummy
+    volumes:
+      - ./CircEnv/models:/app/CircEnv/models
+      - ./CircEnv/logs_hockey_active_goal:/app/CircEnv/logs_hockey_active_goal
+      - ./models:/app/models
+    restart: unless-stopped
+
+  tensorboard:
+    build: .
+    working_dir: /app/CircEnv
+    command: tensorboard --logdir logs_hockey_active_goal --host 0.0.0.0 --port 6006
+    ports:
+      - "6006:6006"
+    volumes:
+      - ./CircEnv/logs_hockey_active_goal:/app/CircEnv/logs_hockey_active_goal
+    profiles:
+      - monitor

@@ -1,27 +1,16 @@
-# Python cache
+.git
 __pycache__/
 **/__pycache__/
 *.py[cod]
-*.pyo
-*.pyd
 *.egg-info/
-*.egg
 .pytest_cache/
+.vscode/
 
-# Virtual environments
-venv/
-.venv/
-env/
-
-# Training outputs
-models/**
 logs/
 logs_puck_dynamics/
 logs_hockey/
 logs_hockey_active_goal/
 logs_goal_push/
-
-CircEnv/models/**
 CircEnv/logs/
 CircEnv/logs_puck_dynamics/
 CircEnv/logs_hockey/
@@ -29,7 +18,8 @@ CircEnv/logs_hockey_active_goal/
 CircEnv/logs_goal_push/
 *.tfevents.*
 
-# Keep only the best trained hockey model in git.
+models/**
+CircEnv/models/**
 !models/
 !models/TQC02/
 !models/TQC02/280000.zip
@@ -40,19 +30,6 @@ CircEnv/logs_goal_push/
 !CircEnv/models/TQC_hockey_active_goal/best.zip
 !CircEnv/models/TQC_hockey_active_goal/best_rewards.csv
 
-# Build/output folders
-dist/
-build/
-
-# Local/editor files
-# VS Code
-.vscode/
-
-# Course/template copies not needed in this repo
 TemplateCircEnvForLinux/
 template/
 templates/
-
-# OS files
-.DS_Store
-Thumbs.db
